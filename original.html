@@ -1,0 +1,14 @@
+<div id="timer">10:00</div>
+<button id="startBtn">Start</button>
+<script>
+let timeLeft = 600; // 10 minutes in seconds
+function startTimer() {
+    setInterval(() => {
+        timeLeft--;
+        let minutes = Math.floor(timeLeft / 60);
+        let seconds = timeLeft % 60;
+        document.getElementById('timer').innerText = minutes + ":" + seconds;
+    }, 1000);
+}
+document.getElementById('startBtn').addEventListener('click', startTimer);
+</script>

@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Drift-Proof Countdown Timer</title>
+    <style>
+        :root {
+            --bg: #0f0f23;
+            --text: #e0e0e0;
+            --accent: #e94560;
+            --accent-hover: #c73e54;
+            --secondary: #16213e;
+            --secondary-hover: #0f3460;
+        }
+        * { box-sizing: border-box; }
+        body {
+            font-family: 'Segoe UI', system-ui, sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            margin: 0;
+            background: var(--bg);
+            color: var(--text);
+        }
+        #timer {
+            font-size: 8rem;
+            font-weight: 700;
+            font-variant-numeric: tabular-nums;
+            letter-spacing: 0.05em;
+            color: var(--accent);
+            transition: color 0.3s;
+        }
+        #timer.warning { color: #ff9f43; }
+        #timer.danger { color: #ff6b6b; }
+        .controls {
+            display: flex;
+            gap: 1rem;
+            margin-top: 2rem;
+        }
+        button {
+            padding: 0.9rem 2rem;
+            font-size: 1.1rem;
+            font-weight: 600;
+            border: none;
+            border-radius: 10px;
+            cursor: pointer;
+            transition: transform 0.1s, background 0.2s;
+            color: #fff;
+        }
+        button:hover { transform: translateY(-2px); }
+        button:active { transform: translateY(0); }
+        #startBtn { background: var(--secondary-hover); display: inline-block; }
+        #startBtn:hover { background: var(--secondary); }
+        #pauseBtn { background: var(--accent); display: none; }
+        #pauseBtn:hover { background: var(--accent-hover); }
+        #resumeBtn { background: var(--secondary-hover); display: none; }
+        #resumeBtn:hover { background: var(--secondary); }
+        #resetBtn { background: #533483; display: inline-block; }
+        #resetBtn:hover { background: #3f2663; }
+        .status {
+            margin-top: 1rem;
+            font-size: 0.9rem;
+            opacity: 0.7;
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+        }
+    </style>
+</head>
+<body>
+    <div id="timer">10:00</div>
+    <div class="status" id="status">Ready</div>
+    <div class="controls">
+        <button id="startBtn">Start</button>
+        <button id="pauseBtn">Pause</button>
+        <button id="resumeBtn">Resume</button>
+        <button id="resetBtn">Reset</button>
+    </div>
+
+    <script>
+        const TOTAL_MS = 600 * 1000; // 10 minutes
+        let remainingMs = TOTAL_MS;
+        let endTime = 0;
+        let rafId = null;
+        let isRunning = false;
+
+        const timerEl = document.getElementById('timer');
+        const statusEl = document.getElementById('status');
+        const startBtn = document.getElementById('startBtn');
+        const pauseBtn = document.getElementById('pauseBtn');
+        const resumeBtn = document.getElementById('resumeBtn');
+        const resetBtn = document.getElementById('resetBtn');
+
+        function formatTime(ms) {
+            const totalSeconds = Math.ceil(ms / 1000);
+            const mins = Math.floor(totalSeconds / 60);
+            const secs = totalSeconds % 60;
+            return `${mins}:${secs.toString().padStart(2, '0')}`;
+        }
+
+        function updateColor(ms) {
+            timerEl.classList.remove('warning', 'danger');
+            if (ms <= 10_000) timerEl.classList.add('danger');      // ≤ 10s
+            else if (ms <= 60_000) timerEl.classList.add('warning');  // ≤ 1 min
+        }
+
+        function updateDisplay() {
+            const now = performance.now();
+            const left = Math.max(0, endTime - now);
+            remainingMs = left;
+            timerEl.textContent = formatTime(left);
+            updateColor(left);
+
+            if (left <= 0) {
+                finishTimer();
+            }
+        }
+
+        function tick() {
+            if (!isRunning) return;
+            updateDisplay();
+            if (isRunning) {
+                rafId = requestAnimationFrame(tick);
+            }
+        }
+
+        function startTimer() {
+            if (isRunning || remainingMs <= 0) return;
+            isRunning = true;
+            endTime = performance.now() + remainingMs;
+            statusEl.textContent = 'Running';
+
+            startBtn.style.display = 'none';
+            resumeBtn.style.display = 'none';
+            pauseBtn.style.display = 'inline-block';
+
+            tick();
+        }
+
+        function pauseTimer() {
+            if (!isRunning) return;
+            isRunning = false;
+            if (rafId) cancelAnimationFrame(rafId);
+
+            // Recalculate exact remaining time at the moment of pause
+            const now = performance.now();
+            remainingMs = Math.max(0, endTime - now);
+
+            statusEl.textContent = 'Paused';
+            pauseBtn.style.display = 'none';
+            resumeBtn.style.display = 'inline-block';
+        }
+
+        function resumeTimer() {
+            if (isRunning) return;
+            isRunning = true;
+            endTime = performance.now() + remainingMs;
+            statusEl.textContent = 'Running';
+
+            resumeBtn.style.display = 'none';
+            pauseBtn.style.display = 'inline-block';
+
+            tick();
+        }
+
+        function resetTimer() {
+            isRunning = false;
+            if (rafId) cancelAnimationFrame(rafId);
+            remainingMs = TOTAL_MS;
+            timerEl.textContent = formatTime(TOTAL_MS);
+            timerEl.classList.remove('warning', 'danger');
+            statusEl.textContent = 'Ready';
+
+            startBtn.style.display = 'inline-block';
+            pauseBtn.style.display = 'none';
+            resumeBtn.style.display = 'none';
+        }
+
+        function finishTimer() {
+            isRunning = false;
+            if (rafId) cancelAnimationFrame(rafId);
+            remainingMs = 0;
+            timerEl.textContent = '0:00';
+            statusEl.textContent = 'Time Up';
+            startBtn.style.display = 'inline-block';
+            pauseBtn.style.display = 'none';
+            resumeBtn.style.display = 'none';
+        }
+
+        // DRIFT-PROOFING: Force recalculation when tab becomes visible again
+        document.addEventListener('visibilitychange', () => {
+            if (document.visibilityState === 'visible' && isRunning) {
+                updateDisplay();
+            }
+        });
+
+        startBtn.addEventListener('click', startTimer);
+        pauseBtn.addEventListener('click', pauseTimer);
+        resumeBtn.addEventListener('click', resumeTimer);
+        resetBtn.addEventListener('click', resetTimer);
+    </script>
+</body>
+</html>
