@@ -70,21 +70,115 @@
     </style>
 </head>
 <body>
-    <div id="timer">10:00</div>
-    <div class="status" id="status">Ready</div>
+    <div
+        id="timer"
+        role="timer"
+        aria-live="polite"
+        aria-label="Countdown timer"
+    >10:00</div>
+    <div class="status" id="status" aria-live="polite">Ready</div>
     <div class="controls">
-        <button id="startBtn">Start</button>
-        <button id="pauseBtn">Pause</button>
-        <button id="resumeBtn">Resume</button>
-        <button id="resetBtn">Reset</button>
+        <button id="startBtn" aria-label="Start countdown">Start</button>
+        <button id="pauseBtn" aria-label="Pause countdown">Pause</button>
+        <button id="resumeBtn" aria-label="Resume countdown">Resume</button>
+        <button id="resetBtn" aria-label="Reset countdown">Reset</button>
     </div>
 
     <script>
-        const TOTAL_MS = 600 * 1000; // 10 minutes
-        let remainingMs = TOTAL_MS;
-        let endTime = 0;
+        const TOTAL_MS = 600 * 1000;
+
+        const State = {
+            READY: 'READY',
+            RUNNING: 'RUNNING',
+            PAUSED: 'PAUSED',
+            FINISHED: 'FINISHED'
+        };
+
+        function createTimerEngine(clock = () => performance.now()) {
+            let state = State.READY;
+            let remainingMs = TOTAL_MS;
+            let endTime = 0;
+
+            function getRemaining() {
+                if (state === State.RUNNING) {
+                    return Math.max(0, endTime - clock());
+                }
+                return remainingMs;
+            }
+
+            function getState() {
+                return state;
+            }
+
+            function start() {
+                if (state !== State.READY && state !== State.PAUSED) return false;
+                endTime = clock() + remainingMs;
+                state = State.RUNNING;
+                return true;
+            }
+
+            function pause() {
+                if (state !== State.RUNNING) return false;
+                remainingMs = Math.max(0, endTime - clock());
+                if (remainingMs === 0) {
+                    state = State.FINISHED;
+                } else {
+                    state = State.PAUSED;
+                }
+                return true;
+            }
+
+            function resume() {
+                if (state !== State.PAUSED) return false;
+                endTime = clock() + remainingMs;
+                state = State.RUNNING;
+                return true;
+            }
+
+            function reset() {
+                state = State.READY;
+                remainingMs = TOTAL_MS;
+                endTime = 0;
+            }
+
+            function finish() {
+                state = State.FINISHED;
+                remainingMs = 0;
+            }
+
+            function isFinished() {
+                return state === State.FINISHED;
+            }
+
+            function isRunning() {
+                return state === State.RUNNING;
+            }
+
+            function isPaused() {
+                return state === State.PAUSED;
+            }
+
+            function isReady() {
+                return state === State.READY;
+            }
+
+            return {
+                getRemaining,
+                getState,
+                start,
+                pause,
+                resume,
+                reset,
+                finish,
+                isFinished,
+                isRunning,
+                isPaused,
+                isReady
+            };
+        }
+
+        const engine = createTimerEngine();
         let rafId = null;
-        let isRunning = false;
 
         const timerEl = document.getElementById('timer');
         const statusEl = document.getElementById('status');
@@ -102,104 +196,109 @@
 
         function updateColor(ms) {
             timerEl.classList.remove('warning', 'danger');
-            if (ms <= 10_000) timerEl.classList.add('danger');      // ≤ 10s
-            else if (ms <= 60_000) timerEl.classList.add('warning');  // ≤ 1 min
+            if (ms <= 10_000) timerEl.classList.add('danger');
+            else if (ms <= 60_000) timerEl.classList.add('warning');
         }
 
-        function updateDisplay() {
-            const now = performance.now();
-            const left = Math.max(0, endTime - now);
-            remainingMs = left;
-            timerEl.textContent = formatTime(left);
-            updateColor(left);
+        function render(ms, statusText) {
+            timerEl.textContent = formatTime(ms);
+            updateColor(ms);
+            statusEl.textContent = statusText;
+        }
 
-            if (left <= 0) {
-                finishTimer();
+        function renderState() {
+            const state = engine.getState();
+            const remaining = engine.getRemaining();
+
+            startBtn.style.display = state === State.READY ? 'inline-block' : 'none';
+            pauseBtn.style.display = state === State.RUNNING ? 'inline-block' : 'none';
+            resumeBtn.style.display = state === State.PAUSED ? 'inline-block' : 'none';
+
+            if (state === State.FINISHED) {
+                render(0, 'Time Up');
+            } else if (state === State.RUNNING) {
+                render(remaining, 'Running');
+            } else if (state === State.PAUSED) {
+                render(remaining, 'Paused');
+            } else {
+                render(remaining, 'Ready');
             }
         }
 
-        function tick() {
-            if (!isRunning) return;
-            updateDisplay();
-            if (isRunning) {
+        function cancelTick() {
+            if (rafId !== null) {
+                cancelAnimationFrame(rafId);
+                rafId = null;
+            }
+        }
+
+        function scheduleTick() {
+            if (rafId === null && engine.isRunning()) {
                 rafId = requestAnimationFrame(tick);
             }
         }
 
-        function startTimer() {
-            if (isRunning || remainingMs <= 0) return;
-            isRunning = true;
-            endTime = performance.now() + remainingMs;
-            statusEl.textContent = 'Running';
+        function tick() {
+            if (!engine.isRunning()) return;
 
-            startBtn.style.display = 'none';
-            resumeBtn.style.display = 'none';
-            pauseBtn.style.display = 'inline-block';
+            const remaining = engine.getRemaining();
+            render(remaining, 'Running');
 
-            tick();
+            if (remaining === 0) {
+                engine.finish();
+                cancelTick();
+                renderState();
+                return;
+            }
+
+            rafId = requestAnimationFrame(tick);
         }
 
-        function pauseTimer() {
-            if (!isRunning) return;
-            isRunning = false;
-            if (rafId) cancelAnimationFrame(rafId);
-
-            // Recalculate exact remaining time at the moment of pause
-            const now = performance.now();
-            remainingMs = Math.max(0, endTime - now);
-
-            statusEl.textContent = 'Paused';
-            pauseBtn.style.display = 'none';
-            resumeBtn.style.display = 'inline-block';
+        function onStart() {
+            if (engine.start()) {
+                scheduleTick();
+                renderState();
+            }
         }
 
-        function resumeTimer() {
-            if (isRunning) return;
-            isRunning = true;
-            endTime = performance.now() + remainingMs;
-            statusEl.textContent = 'Running';
-
-            resumeBtn.style.display = 'none';
-            pauseBtn.style.display = 'inline-block';
-
-            tick();
+        function onPause() {
+            if (engine.pause()) {
+                cancelTick();
+                renderState();
+            }
         }
 
-        function resetTimer() {
-            isRunning = false;
-            if (rafId) cancelAnimationFrame(rafId);
-            remainingMs = TOTAL_MS;
-            timerEl.textContent = formatTime(TOTAL_MS);
-            timerEl.classList.remove('warning', 'danger');
-            statusEl.textContent = 'Ready';
-
-            startBtn.style.display = 'inline-block';
-            pauseBtn.style.display = 'none';
-            resumeBtn.style.display = 'none';
+        function onResume() {
+            if (engine.resume()) {
+                scheduleTick();
+                renderState();
+            }
         }
 
-        function finishTimer() {
-            isRunning = false;
-            if (rafId) cancelAnimationFrame(rafId);
-            remainingMs = 0;
-            timerEl.textContent = '0:00';
-            statusEl.textContent = 'Time Up';
-            startBtn.style.display = 'inline-block';
-            pauseBtn.style.display = 'none';
-            resumeBtn.style.display = 'none';
+        function onReset() {
+            engine.reset();
+            cancelTick();
+            renderState();
         }
 
-        // DRIFT-PROOFING: Force recalculation when tab becomes visible again
         document.addEventListener('visibilitychange', () => {
-            if (document.visibilityState === 'visible' && isRunning) {
-                updateDisplay();
+            if (engine.isRunning() && document.visibilityState === 'visible') {
+                const remaining = engine.getRemaining();
+                if (remaining === 0) {
+                    engine.finish();
+                    cancelTick();
+                }
+                renderState();
+                scheduleTick();
             }
         });
 
-        startBtn.addEventListener('click', startTimer);
-        pauseBtn.addEventListener('click', pauseTimer);
-        resumeBtn.addEventListener('click', resumeTimer);
-        resetBtn.addEventListener('click', resetTimer);
+        startBtn.addEventListener('click', onStart);
+        pauseBtn.addEventListener('click', onPause);
+        resumeBtn.addEventListener('click', onResume);
+        resetBtn.addEventListener('click', onReset);
+
+        renderState();
     </script>
 </body>
 </html>
